@@ -82,7 +82,8 @@ def main():
     outer.reset()
 
     if args.render:
-        env.launch_viewer()
+        env.launch_viewer(track_drone=True, cam_azimuth=45.0,
+                          cam_elevation=-30.0, cam_distance=5.0)
 
     # ---- Logging buffers ---------------------------------------------------
     log_times, log_pos, log_ref, log_ctrl, log_compute = [], [], [], [], []
@@ -113,6 +114,9 @@ def main():
             log_ref.append(ref_now[:3].copy())
             log_ctrl.append(outer_cmd.copy())
             log_compute.append(t_solve)
+
+            # Append current position to flight trail (render mode)
+            env.add_trail_point(pos)
 
             if step % (50 * sim_steps_per_ctrl) == 0:
                 info = outer.get_info()

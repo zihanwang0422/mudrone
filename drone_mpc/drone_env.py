@@ -197,10 +197,92 @@ class DroneEnv:
         self.data.time = state["time"]
         mujoco.mj_forward(self.model, self.data)
 
-    def launch_viewer(self):
-        """Launch the MuJoCo interactive viewer."""
-        self._viewer = mujoco.viewer.launch_passive(self.model, self.data)
+    def launch_viewer(self,
+                      track_drone: bool = True,
+                      cam_azimuth: float = 45.0,
+                      cam_elevation: float = -30.0,
+                      cam_distance: float = 1.0):
+        """Launch the MuJoCo interactive viewer with optional drone-tracking camera.
+
+        Args:
+            track_drone:   If True, camera follows the drone (side-above view).
+            cam_azimuth:   Camera azimuth angle (degrees). 45° = side-diagonal view.
+            cam_elevation: Camera elevation angle (degrees). -30° = looking slightly down.
+            cam_distance:  Distance from the tracked body (meters).
+        """
+        self._viewer = mujoco.viewer.launch_passive(self.model, self.data,
+                                                    show_left_ui=False,
+                                                    show_right_ui=False)
         self._render = True
+
+        # ---- Trail geom buffer (stored in viewer's user_scn) ----
+        self._trail_pos: list = []   # list of np.array([x,y,z]) waypoints
+        self._trail_max = 2000       # keep last N segments (avoid unbounded growth)
+
+        # ---- Camera: track drone body ----
+        if track_drone:
+            drone_body_id = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_BODY, "cf2"
+            )
+            with self._viewer.lock():
+                cam = self._viewer.cam
+                cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+                cam.trackbodyid = drone_body_id
+                cam.azimuth   = cam_azimuth
+                cam.elevation = cam_elevation
+                cam.distance  = cam_distance
+
+    def _update_trail(self, pos: np.ndarray):
+        """Append a new position to the trail and redraw all line segments in user_scn.
+
+        Called every outer-loop step while rendering.
+
+        Args:
+            pos: Current drone position [x, y, z]
+        """
+        if self._viewer is None or self._viewer.user_scn is None:
+            return
+
+        self._trail_pos.append(pos.copy())
+        # Keep only the last _trail_max+1 points (= _trail_max segments)
+        if len(self._trail_pos) > self._trail_max + 1:
+            self._trail_pos = self._trail_pos[-(self._trail_max + 1):]
+
+        scn = self._viewer.user_scn
+        n_seg = len(self._trail_pos) - 1
+        if n_seg <= 0:
+            return
+
+        # Cap segments to scene capacity
+        n_seg = min(n_seg, scn.maxgeom)
+        # Use geoms[0..n_seg-1] for trail
+        for i in range(n_seg):
+            g = scn.geoms[i]
+            mujoco.mjv_initGeom(
+                g,
+                mujoco.mjtGeom.mjGEOM_LINE,
+                np.zeros(3),
+                np.zeros(3),
+                np.eye(3).flatten(),
+                np.array([1.0, 0.1, 0.1, 0.9], dtype=np.float32),  # red, slightly transparent
+            )
+            mujoco.mjv_connector(
+                g,
+                mujoco.mjtGeom.mjGEOM_LINE,
+                3.0,                      # line width in pixels
+                self._trail_pos[i],
+                self._trail_pos[i + 1],
+            )
+        scn.ngeom = n_seg
+
+    def add_trail_point(self, pos: np.ndarray):
+        """Public interface: append a position to the flight trail (render mode only).
+
+        Args:
+            pos: Drone position [x, y, z] at this instant.
+        """
+        if self._render and self._viewer is not None:
+            self._update_trail(pos)
 
     def close(self):
         """Close the viewer."""

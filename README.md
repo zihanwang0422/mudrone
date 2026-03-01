@@ -70,7 +70,7 @@ python run_mpc.py
 python run_mpc.py --render
 
 # 自定义参数
-python run_mpc.py --radius 1.5 --height 1.2 --omega 0.3 --duration 30
+python run_mpc.py --radius 1.5 --height 1.2 --omega 0.3 --duration 30 --render
 
 # 八字形轨迹
 python run_mpc.py --trajectory lemniscate --radius 2.0
