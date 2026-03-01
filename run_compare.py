@@ -61,7 +61,7 @@ def run_controller(env, outer, traj, duration, dt_ctrl, dt_sim, name="Controller
         outer_counter = (outer_counter + 1) % sim_steps_per_ctrl
 
         euler = quat_to_euler(state[3:7])
-        ctrl  = inner.step(outer_cmd, euler, state[2], state[9])
+        ctrl  = inner.step(outer_cmd, euler, state[2], state[9], ang_vel=state[10:13])
         state = env.step(ctrl)
 
     times      = np.array(log_times)

@@ -62,8 +62,12 @@ def main():
                                     center=(0.0, 0.0), height=args.height)
 
     # ---- Controllers -------------------------------------------------------
+    Q  = np.diag([200., 200., 300., 0.5, 0.5, 0.5])
+    Qf = np.diag([500., 500., 600., 5., 5., 5.])
+    R  = np.diag([0.5, 5.0, 5.0])
     outer = MPCController(dt=dt_ctrl, horizon=args.horizon,
-                          mass=0.027, gravity=9.81)
+                          mass=0.027, gravity=9.81,
+                          Q=Q, R=R, Q_terminal=Qf, max_tilt_deg=10.0)
     inner = CascadeController(dt_inner=dt_sim)
 
     # ---- Initialise --------------------------------------------------------
@@ -117,7 +121,7 @@ def main():
         euler = quat_to_euler(state[3:7])
         z     = state[2]
         vz    = state[9]
-        ctrl  = inner.step(outer_cmd, euler, z, vz)
+        ctrl  = inner.step(outer_cmd, euler, z, vz, ang_vel=state[10:13])
 
         # ---------- step MuJoCo ---------------------------------------------
         state = env.step(ctrl)
