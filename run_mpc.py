@@ -66,7 +66,7 @@ def main():
     Qf = np.diag([500., 500., 600., 5., 5., 5.])
     R  = np.diag([0.5, 5.0, 5.0])
     outer = MPCController(dt=dt_ctrl, horizon=args.horizon,
-                          mass=0.027, gravity=9.81,
+                          mass=env.MASS, gravity=9.81,
                           Q=Q, R=R, Q_terminal=Qf, max_tilt_deg=10.0)
     inner = CascadeController(dt_inner=dt_sim)
 

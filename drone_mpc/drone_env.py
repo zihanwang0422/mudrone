@@ -33,9 +33,10 @@ class DroneEnv:
     """
 
     # Physical constants for Crazyflie 2
-    MASS = 0.027  # kg
+    # Note: 4 prop bodies add 4×0.1g = 0.4g; total model mass = 27.4g
+    MASS = 0.0274  # kg  (27g body + 0.4g prop geoms)
     GRAVITY = 9.81  # m/s^2
-    HOVER_THRUST = MASS * GRAVITY  # ≈ 0.265 N
+    HOVER_THRUST = MASS * GRAVITY  # ≈ 0.2688 N
 
     def __init__(
         self,

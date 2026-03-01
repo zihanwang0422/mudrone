@@ -71,7 +71,7 @@ def main():
     outer = MPPIController(dt=dt_ctrl, horizon=args.horizon,
                            n_samples=args.n_samples,
                            temperature=args.temperature,
-                           mass=0.027, gravity=9.81,
+                           mass=env.MASS, gravity=9.81,
                            Q=Q, R=R, Q_terminal=Qf, max_tilt_deg=10.0)
     inner = CascadeController(dt_inner=dt_sim)
 
