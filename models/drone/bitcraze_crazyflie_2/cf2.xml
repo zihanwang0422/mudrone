@@ -111,6 +111,49 @@
       <geom mesh="cf2_collision_31" class="collision"/>
       <site name="imu"/>
       <site name="actuation"/>
+
+      <!-- ===== Propeller spin bodies (visual only, no physics) ===== -->
+      <!-- CF2 arm length ~46mm, props at (±0.033, ±0.033) in body frame -->
+      <!-- Each prop spins about its local z-axis (body up-axis) -->
+      <!-- prop1: front-right (+x,+y), CCW; prop2: back-left  (-x,-y), CCW -->
+      <!-- prop3: front-left  (+x,-y), CW;  prop4: back-right (-x,+y), CW  -->
+
+      <body name="prop1" pos=" 0.033  0.033  0.005" childclass="cf2">
+        <inertial pos="0 0 0" mass="0.0001" diaginertia="1e-8 1e-8 1e-8"/>
+        <joint name="prop1_joint" type="hinge" axis="0 0 1" limited="false" damping="1e-6" armature="0" frictionloss="0"/>
+        <geom type="cylinder" size="0.023 0.001" rgba="0.8 0.8 1.0 0.5" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.023 0.002 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.002 0.023 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"
+              euler="0 0 45"/>
+      </body>
+
+      <body name="prop2" pos="-0.033 -0.033  0.005" childclass="cf2">
+        <inertial pos="0 0 0" mass="0.0001" diaginertia="1e-8 1e-8 1e-8"/>
+        <joint name="prop2_joint" type="hinge" axis="0 0 1" limited="false" damping="1e-6" armature="0" frictionloss="0"/>
+        <geom type="cylinder" size="0.023 0.001" rgba="0.8 0.8 1.0 0.5" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.023 0.002 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.002 0.023 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"
+              euler="0 0 45"/>
+      </body>
+
+      <body name="prop3" pos=" 0.033 -0.033  0.005" childclass="cf2">
+        <inertial pos="0 0 0" mass="0.0001" diaginertia="1e-8 1e-8 1e-8"/>
+        <joint name="prop3_joint" type="hinge" axis="0 0 -1" limited="false" damping="1e-6" armature="0" frictionloss="0"/>
+        <geom type="cylinder" size="0.023 0.001" rgba="0.8 0.8 1.0 0.5" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.023 0.002 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.002 0.023 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"
+              euler="0 0 45"/>
+      </body>
+
+      <body name="prop4" pos="-0.033  0.033  0.005" childclass="cf2">
+        <inertial pos="0 0 0" mass="0.0001" diaginertia="1e-8 1e-8 1e-8"/>
+        <joint name="prop4_joint" type="hinge" axis="0 0 -1" limited="false" damping="1e-6" armature="0" frictionloss="0"/>
+        <geom type="cylinder" size="0.023 0.001" rgba="0.8 0.8 1.0 0.5" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.023 0.002 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"/>
+        <geom type="box"      size="0.002 0.023 0.001" rgba="0.3 0.3 0.9 0.7" contype="0" conaffinity="0" group="2"
+              euler="0 0 45"/>
+      </body>
+
     </body>
   </worldbody>
 
@@ -119,6 +162,11 @@
     <motor class="cf2" ctrlrange="-1 1" gear="0 0 0 -0.001 0 0" site="actuation" name="x_moment"/>
     <motor class="cf2" ctrlrange="-1 1" gear="0 0 0 0 -0.001 0" site="actuation" name="y_moment"/>
     <motor class="cf2" ctrlrange="-1 1" gear="0 0 0 0 0 -0.001" site="actuation" name="z_moment"/>
+    <!-- Propeller spin actuators (visual only — direct torque drive) -->
+    <motor name="prop1_spin" joint="prop1_joint" gear="1" ctrlrange="-0.01 0.01"/>
+    <motor name="prop2_spin" joint="prop2_joint" gear="1" ctrlrange="-0.01 0.01"/>
+    <motor name="prop3_spin" joint="prop3_joint" gear="1" ctrlrange="-0.01 0.01"/>
+    <motor name="prop4_spin" joint="prop4_joint" gear="1" ctrlrange="-0.01 0.01"/>
   </actuator>
 
   <sensor>
@@ -128,6 +176,6 @@
   </sensor>
 
   <keyframe>
-    <key name="hover" qpos="0 0 0.1 1 0 0 0" ctrl="0.26487 0 0 0"/>
+    <key name="hover" qpos="0 0 0.1 1 0 0 0 0 0 0 0" ctrl="0.26487 0 0 0 200 200 -200 -200"/>
   </keyframe>
 </mujoco>

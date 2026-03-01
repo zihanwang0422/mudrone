@@ -60,12 +60,17 @@ class DroneEnv:
         self.data = mujoco.MjData(self.model)
         self.dt = dt
 
-        # Actuator dimensions
-        self.n_ctrl = self.model.nu  # 4
+        # Main flight actuators (indices 0-3): thrust + 3 moments
+        # Prop spin actuators (indices 4-7): visual-only velocity servos
+        self.n_ctrl = 4   # external interface still uses 4 commands
         self.ctrl_limits = np.array([
             [self.model.actuator_ctrlrange[i, 0], self.model.actuator_ctrlrange[i, 1]]
-            for i in range(self.n_ctrl)
+            for i in range(4)   # only flight actuators
         ])
+
+        # Prop-spin scaling: at hover thrust T_hover → target ~200 rad/s
+        # omega = PROP_SCALE * thrust_N  (linear approximation)
+        self._prop_scale = 200.0 / self.HOVER_THRUST   # ≈ 755 rad/s per N
 
         # Rendering
         self._render = render
@@ -143,13 +148,25 @@ class DroneEnv:
 
         Args:
             ctrl: Control vector [thrust, roll_moment, pitch_moment, yaw_moment] (4,)
+                  Propeller spin speeds are derived automatically from thrust.
 
         Returns:
             state: New state vector (13,)
         """
-        # Clip control to actuator limits
+        # Clip flight actuators
         ctrl_clipped = np.clip(ctrl, self.ctrl_limits[:, 0], self.ctrl_limits[:, 1])
-        self.data.ctrl[:] = ctrl_clipped
+        self.data.ctrl[0:4] = ctrl_clipped
+
+        # Drive prop spin speed proportional to thrust by directly setting joint velocity.
+        # This avoids numerical instability from torque-based velocity servos on tiny-inertia joints.
+        # qvel indices: 0-2 = body translational, 3-5 = body rotational, 6-9 = 4 prop hinges
+        if self.model.nv >= 10:
+            omega = float(ctrl_clipped[0]) * self._prop_scale
+            self.data.qvel[6] =  omega   # prop1 CCW
+            self.data.qvel[7] =  omega   # prop2 CCW
+            self.data.qvel[8] = -omega   # prop3 CW
+            self.data.qvel[9] = -omega   # prop4 CW
+            self.data.ctrl[4:8] = 0.0    # zero motor torque (speed is imposed directly)
 
         mujoco.mj_step(self.model, self.data)
 
@@ -170,7 +187,14 @@ class DroneEnv:
             state: Final state vector (13,)
         """
         ctrl_clipped = np.clip(ctrl, self.ctrl_limits[:, 0], self.ctrl_limits[:, 1])
-        self.data.ctrl[:] = ctrl_clipped
+        self.data.ctrl[0:4] = ctrl_clipped
+        if self.model.nv >= 10:
+            omega = float(ctrl_clipped[0]) * self._prop_scale
+            self.data.qvel[6] =  omega
+            self.data.qvel[7] =  omega
+            self.data.qvel[8] = -omega
+            self.data.qvel[9] = -omega
+            self.data.ctrl[4:8] = 0.0
 
         for _ in range(n_steps):
             mujoco.mj_step(self.model, self.data)
