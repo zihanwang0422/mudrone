@@ -144,6 +144,126 @@ xn = xk + (self.dt/6.)*(f1 + 2*f2 + 2*f3 + f4)
 
 ---
 
+### 圆形轨迹跟踪：从参考生成到控制输出的完整流程
+
+#### 1. 参考轨迹的解析表达
+
+圆形轨迹在 $t$ 时刻的参考状态由解析公式直接给出（无需数值积分）：
+
+$$
+\mathbf{x}^{\text{ref}}(t) = \begin{bmatrix}
+r\cos(\omega t) \\
+r\sin(\omega t) \\
+h \\
+-r\omega\sin(\omega t) \\
+r\omega\cos(\omega t) \\
+0
+\end{bmatrix}
+$$
+
+**关键：速度分量同样被纳入参考**（不只是位置），这使得 MPC 的 $Q$ 矩阵可以同时惩罚位置误差和速度误差，从而在曲线段提前"预判"需要的向心速度。
+
+```python
+# drone_mpc/trajectory.py
+def get_reference(self, t: float) -> np.ndarray:
+    x  = cx + r * np.cos(w * t)
+    y  = cy + r * np.sin(w * t)
+    vx = -r * w * np.sin(w * t)   # 位置对 t 求导
+    vy =  r * w * np.cos(w * t)
+    return np.array([x, y, z, vx, vy, vz])
+```
+
+#### 2. 预测域内的参考序列展开
+
+每次 MPC 求解前，将未来 $N$ 步（预测域 $N\Delta t = 0.5\,\text{s}$）的参考状态一次性展开：
+
+```python
+# run_mpc.py：每个外环周期（20 ms）调用一次
+ref_seq = traj.get_reference_sequence(t_sim, N=outer.N, dt=outer.dt)
+# → shape (25, 6)，覆盖未来 0.5 s 的圆弧段
+
+outer_cmd = outer.compute_control(state, ref_seq)
+```
+
+在 MPC 参数向量 $\mathbf{p}$ 中布局如下：
+
+$$
+\mathbf{p} = \underbrace{\mathbf{x}_0}_{6} \;\Big|\; \underbrace{\mathbf{x}_1^{\text{ref}}, \mathbf{x}_2^{\text{ref}}, \ldots, \mathbf{x}_N^{\text{ref}}}_{N \times 6} \;\Big|\; \underbrace{\mathbf{u}_{\text{prev}}}_{3}
+$$
+
+这样 IPOPT 求解器在优化时，每一步 $k$ 都有对应的参考点 $\mathbf{x}_k^{\text{ref}}$，而不是只追末端目标点。
+
+#### 3. 向心加速度如何转化为倾斜角
+
+圆周运动需要持续的向心加速度，大小为：
+
+$$
+a_c = r\omega^2 \quad (\text{指向圆心})
+$$
+
+以飞机在 $y$ 轴正方向（即 $\theta = \omega t = 0$ 处）飞行为例，向心加速度方向为 $-x$，需要：
+
+$$
+a_x = -r\omega^2 = \frac{T}{m}\sin\theta_{\text{pitch}} \implies \theta_{\text{pitch}} \approx -\frac{mr\omega^2}{T}
+$$
+
+以本项目参数（$r=1\,\text{m}$，$\omega=0.5\,\text{rad/s}$，$m=0.027\,\text{kg}$，$T \approx mg$）：
+
+$$
+|\theta_{\text{pitch}}| \approx \frac{r\omega^2}{g} = \frac{1 \times 0.25}{9.81} \approx 0.026\,\text{rad} \approx 1.5°
+$$
+
+这远小于 MPC 的倾斜角约束 $\pm 10°$，因此 MPC 的约束不会在正常圆形轨迹中激活，优化解有充足的可行域。
+
+#### 4. 滚动时域"向前看"示意
+
+```
+圆形轨迹（俯视）：
+                    ★ ref_k+4
+               ★ ref_k+3
+          ★ ref_k+2        ← 预测域 N=25 步，覆盖 0.5s 弧段
+     ★ ref_k+1
+● x_current ──→ 求解最优 U* ──→ 执行 u_0* ──→ 下一周期重新求解
+
+  ●：当前位置（MPC 的 x0）
+  ★：未来各步参考点（从 CircleTrajectory 计算）
+  MPC 看到前方弧度约 ω×0.5 = 0.25 rad，提前调整姿态
+```
+
+**"向前看"的收益**：在圆弧转弯处，MPC 提前 0.5 s 感知到需要转向，开始缓慢 倾斜机体，而不是等到偏差累积后再纠正，因此跟踪误差远小于纯反馈控制。
+
+#### 5. 热启动（Warm Start）加速求解
+
+圆形轨迹飞行时，前后两个控制周期的最优解非常接近（轨迹变化缓慢）。项目利用这一特性将上一步最优控制序列向前平移一步作为初值：
+
+```python
+# 热启动：上一步 U*[1:] 作为本步初值，最后一步重复末尾值
+if self._prev_u is not None:
+    for k in range(self.N - 1):
+        x0[cs + k*nu : cs + (k+1)*nu] = self._prev_u[k + 1]
+    x0[cs + (self.N-1)*nu:] = self._prev_u[-1]
+```
+
+效果：IPOPT 从接近最优的初值出发，迭代次数从 ~50 次降至 ~5 次，单步求解时间约 **5–15 ms**（50 Hz 外环预算 20 ms 内完成）。
+
+#### 6. 圆形轨迹跟踪的控制约束分析
+
+最大圆速度受 MPC 倾斜角约束限制：
+
+$$
+\omega_{\max} = \sqrt{\frac{g \cdot \tan(\phi_{\max})}{r}}
+$$
+
+以 $\phi_{\max} = 10°$、$r = 1\,\text{m}$：
+
+$$
+\omega_{\max} = \sqrt{\frac{9.81 \times \tan(10°)}{1}} \approx \sqrt{1.73} \approx 1.3\,\text{rad/s}
+$$
+
+项目默认 $\omega = 0.5\,\text{rad/s}$，留有约 2.6 倍的裕量，保证 MPC 解始终在约束可行域内。
+
+---
+
 ## CasADi 优化框架详解
 
 ### 为什么使用 CasADi？
@@ -358,12 +478,3 @@ python run_mppi.py --trajectory lemniscate --render
 ```bash
 python run_compare.py
 ```
-
----
-
-## 简历摘要
-
-> **基于 MPC 的四旋翼无人机轨迹跟踪控制系统**：
->
-> 1. 使用 CasADi + IPOPT 实现非线性 MPC 外环控制器，结合 RK4 动力学积分与控制增量平滑惩罚，在 MuJoCo 仿真中驱动 Crazyflie 2 无人机高精度跟踪圆形及∞字形轨迹，跟踪误差 < 0.05 m。
-> 2. 设计外环 MPC（50 Hz）与内环 PD 姿态控制（200 Hz）的级联架构，并实现 MPPI 随机采样控制器作为基线对比，验证了优化控制方法在复杂轨迹跟踪任务中的稳定性与精度优势。
