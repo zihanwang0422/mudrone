@@ -29,12 +29,17 @@ mobile_mujoco/
 │   ├── drone_env.py             # MuJoCo environment wrapper
 │   ├── mpc_controller.py        # MPC controller (CasADi + IPOPT)
 │   ├── mppi_controller.py       # MPPI controller (sampling-based)
+│   ├── mppi_risk.py             # Analytic / learned proximity risk (§4.2.3)
 │   ├── inner_loop.py            # Attitude PD inner loop (200 Hz)
 │   ├── trajectory.py            # Trajectory generators
 │   └── visualization.py        # Plotting utilities
+├── docs/
+│   └── MPPI_GUIDE.md            # MPPI 参数、风险场与复现实验
 ├── run_mpc.py                   # Run MPC tracking
 ├── run_mppi.py                  # Run MPPI tracking
 ├── run_compare.py               # MPC vs MPPI comparison
+├── scripts/
+│   └── train_mppi_risk_mlp.py   # Train learned risk MLP (NumPy)
 └── environment.yml              # Conda environment
 ```
 
@@ -57,6 +62,8 @@ conda activate mobile_mujoco
 ---
 
 ## 🚀 Usage
+
+**MPPI 参数、风险场与复现实验：** 见 [docs/MPPI_GUIDE.md](docs/MPPI_GUIDE.md)。
 
 ### ▶️ MPC Trajectory Tracking
 
@@ -113,8 +120,12 @@ python run_compare.py --save results/comparison.png
 | `--render` | `False` | Enable MuJoCo real-time viewer |
 | `--save` | `None` | Save plot to file path |
 | `--horizon` | `25/30` | MPC/MPPI prediction horizon steps |
-| `--n-samples` | `256` | MPPI sample count K |
+| `--n-samples` | `512` | MPPI sample count K (REPORT §3.5) |
 | `--temperature` | `0.05` | MPPI temperature λ (lower = greedier) |
+| `--smoothing-alpha` | `0.05` | MPPI nominal-control smoothing (REPORT §3.5) |
+| `--seed` | `42` | MPPI RNG seed |
+| `--risk` | `none` | `none` \| `analytic` \| `learned` (§4.2.3) |
+| `--scene` | `default` | `default` \| `with_walls` (match analytic walls) |
 
 ---
 
