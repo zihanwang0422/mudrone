@@ -15,7 +15,10 @@ Design (v2 — aligned with MPC redesign):
 """
 
 import numpy as np
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from drone_mpc.mppi_risk import RiskModel
 
 
 class MPPIController:
@@ -35,6 +38,8 @@ class MPPIController:
         max_tilt_deg: float = 10.0,
         smoothing_alpha: float = 0.05,
         seed: int = 42,
+        risk_model: Optional["RiskModel"] = None,
+        risk_weight: float = 0.0,
     ):
         self.dt = dt
         self.N = horizon
@@ -73,6 +78,8 @@ class MPPIController:
         self.rng = np.random.default_rng(seed)
         self._best_cost = np.inf
         self._mean_cost = np.inf
+        self.risk_model = risk_model
+        self.risk_weight = float(risk_weight)
 
     def _dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         """Vectorised: x (K,6), u (K,3) → dx (K,6)"""
@@ -108,6 +115,8 @@ class MPPIController:
             costs += np.einsum('ki,ij,kj->k', err,  self.Q, err)
             u_err = U_samples[:, t, :] - self.u_hover
             costs += np.einsum('ki,ij,kj->k', u_err, self.R, u_err)
+            if self.risk_model is not None and self.risk_weight > 0.0:
+                costs += self.risk_weight * self.risk_model.step_cost(x)
             x = self._dynamics_step(x, U_samples[:, t, :])
             bad = np.any(~np.isfinite(x), axis=1)
             costs[bad] = 1e10
@@ -176,6 +185,15 @@ class MPPIController:
         self._mean_cost = np.inf
 
     def get_info(self) -> Dict[str, Any]:
-        return {"type": "MPPI", "horizon": self.N, "n_samples": self.K,
-                "temperature": self.lam, "best_cost": self._best_cost,
-                "mean_cost": self._mean_cost, "dt": self.dt}
+        info: Dict[str, Any] = {
+            "type": "MPPI",
+            "horizon": self.N,
+            "n_samples": self.K,
+            "temperature": self.lam,
+            "best_cost": self._best_cost,
+            "mean_cost": self._mean_cost,
+            "dt": self.dt,
+            "risk_weight": self.risk_weight,
+            "risk_model": type(self.risk_model).__name__ if self.risk_model else None,
+        }
+        return info

@@ -90,10 +90,12 @@ def main():
                         choices=["circle", "lemniscate"])
     parser.add_argument("--dt-ctrl", type=float, default=0.02, help="Control timestep (s)")
     parser.add_argument("--dt-sim", type=float, default=0.005, help="Simulation timestep (s)")
+    parser.add_argument("--seed", type=int, default=42, help="MPPI RNG seed (MPC unaffected)")
     args = parser.parse_args()
 
     print("=" * 60)
     print("  MPC vs MPPI Comparison")
+    print(f"  MPPI seed: {args.seed}")
     print("=" * 60)
 
     # Create environment
@@ -112,15 +114,21 @@ def main():
         )
 
     # --- Run MPC ---
-    mpc = MPCController(dt=args.dt_ctrl, horizon=25, mass=0.027, gravity=9.81)
+    mpc = MPCController(dt=args.dt_ctrl, horizon=25, mass=env.MASS, gravity=9.81)
     mpc_results = run_controller(
         env, mpc, traj, args.duration, args.dt_ctrl, args.dt_sim, name="MPC"
     )
 
-    # --- Run MPPI ---
+    # --- Run MPPI (REPORT §3.5 aligned defaults) ---
     mppi = MPPIController(
-        dt=args.dt_ctrl, horizon=30, n_samples=256,
-        temperature=0.05, mass=0.027, gravity=9.81,
+        dt=args.dt_ctrl,
+        horizon=30,
+        n_samples=512,
+        temperature=0.05,
+        mass=env.MASS,
+        gravity=9.81,
+        smoothing_alpha=0.05,
+        seed=args.seed,
     )
     mppi_results = run_controller(
         env, mppi, traj, args.duration, args.dt_ctrl, args.dt_sim, name="MPPI"

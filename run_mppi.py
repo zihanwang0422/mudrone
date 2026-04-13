@@ -9,10 +9,11 @@ Architecture (cascade control):
 Usage:
     python run_mppi.py [--radius 1.0] [--height 1.0] [--omega 0.5]
                        [--duration 20] [--render] [--save PATH]
-                       [--n-samples 256] [--temperature 0.05]
+                       [--n-samples 512] [--temperature 0.05] [--smoothing-alpha 0.05]
 """
 
 import argparse
+import os
 import time
 import numpy as np
 
@@ -21,6 +22,38 @@ from drone_mpc.mppi_controller import MPPIController
 from drone_mpc.inner_loop import CascadeController
 from drone_mpc.trajectory import CircleTrajectory, LemniscateTrajectory
 from drone_mpc.visualization import plot_tracking_results
+from drone_mpc.mppi_risk import MLPRisk, default_analytic_risk_for_walls_scene
+
+
+def _models_dir() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "drone", "bitcraze_crazyflie_2")
+
+
+def _resolve_scene_path(args: argparse.Namespace):
+    if getattr(args, "scene", "default") == "with_walls":
+        return os.path.join(_models_dir(), "scene_with_walls.xml")
+    return None
+
+
+def _build_risk(args: argparse.Namespace):
+    """Returns (risk_model_or_None, risk_weight)."""
+    mode = getattr(args, "risk", "none")
+    w = float(getattr(args, "risk_weight", 0.0))
+    if mode == "none":
+        return None, 0.0
+    if mode == "analytic":
+        return default_analytic_risk_for_walls_scene(), w
+    if mode == "learned":
+        path = getattr(args, "risk_weights", None)
+        if not path:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "drone_mpc", "risk_mlp_default.npz")
+        if not os.path.isfile(path):
+            raise FileNotFoundError(
+                f"Learned risk weights not found: {path}\n"
+                "Run: python scripts/train_mppi_risk_mlp.py --out drone_mpc/risk_mlp_default.npz"
+            )
+        return MLPRisk(path), w
+    raise ValueError(f"Unknown --risk {mode}")
 
 
 def main():
@@ -33,11 +66,40 @@ def main():
     parser.add_argument("--save",        type=str,   default=None,  help="Save plot to file")
     parser.add_argument("--trajectory",  type=str,   default="circle",
                         choices=["circle", "lemniscate"])
-    parser.add_argument("--n-samples",   type=int,   default=256,   help="MPPI sample count K")
+    parser.add_argument("--n-samples",   type=int,   default=512,   help="MPPI sample count K (REPORT §3.5 default)")
     parser.add_argument("--horizon",     type=int,   default=30,    help="MPPI horizon steps")
     parser.add_argument("--temperature", type=float, default=0.05,  help="MPPI temperature λ")
+    parser.add_argument("--smoothing-alpha", type=float, default=0.05,
+                        help="Temporal smoothing on U_nominal (REPORT §3.5 default 0.05)")
     parser.add_argument("--dt-ctrl",     type=float, default=0.02,  help="Outer-loop period (s)")
     parser.add_argument("--dt-sim",      type=float, default=0.005, help="Simulation timestep (s)")
+    parser.add_argument("--seed",        type=int,   default=42,    help="RNG seed for MPPI sampling")
+    parser.add_argument(
+        "--scene",
+        type=str,
+        default="default",
+        choices=["default", "with_walls"],
+        help="MuJoCo scene: default floor-only or with vertical walls (match analytic risk)",
+    )
+    parser.add_argument(
+        "--risk",
+        type=str,
+        default="none",
+        choices=["none", "analytic", "learned"],
+        help="Add proximity risk to MPPI cost (REPORT §4.2.3)",
+    )
+    parser.add_argument(
+        "--risk-weight",
+        type=float,
+        default=0.35,
+        help="Multiplier on risk cost (use lower if tracking degrades)",
+    )
+    parser.add_argument(
+        "--risk-weights",
+        type=str,
+        default=None,
+        help="Path to risk_mlp.npz for --risk learned",
+    )
     args = parser.parse_args()
 
     dt_sim  = args.dt_sim
@@ -49,12 +111,16 @@ def main():
     print("=" * 60)
     print(f"  Trajectory : {args.trajectory}  r={args.radius}m  h={args.height}m  ω={args.omega}rad/s")
     print(f"  Duration   : {args.duration}s")
-    print(f"  MPPI       : K={args.n_samples}  N={args.horizon}  λ={args.temperature}")
-    print(f"  outer dt={dt_ctrl}s   sim dt={dt_sim}s")
+    print(f"  MPPI       : K={args.n_samples}  N={args.horizon}  λ={args.temperature}  "
+          f"α_smooth={args.smoothing_alpha}")
+    print(f"  outer dt={dt_ctrl}s   sim dt={dt_sim}s  seed={args.seed}")
+    print(f"  scene={args.scene}   risk={args.risk}  risk_w={args.risk_weight if args.risk != 'none' else 0.0}")
     print("=" * 60)
 
+    risk_model, rw = _build_risk(args)
+
     # ---- Environment -------------------------------------------------------
-    env = DroneEnv(dt=dt_sim, render=args.render)
+    env = DroneEnv(dt=dt_sim, render=args.render, model_path=_resolve_scene_path(args))
 
     # ---- Trajectory --------------------------------------------------------
     if args.trajectory == "circle":
@@ -70,12 +136,22 @@ def main():
     Qf = np.diag([500., 500., 600., 5.,  5.,  20.])
     # R: [thrust, roll, pitch]  — increase attitude penalty to reduce control noise
     R  = np.diag([1.0, 20.0, 20.0])
-    outer = MPPIController(dt=dt_ctrl, horizon=args.horizon,
-                           n_samples=args.n_samples,
-                           temperature=args.temperature,
-                           mass=env.MASS, gravity=9.81,
-                           Q=Q, R=R, Q_terminal=Qf, max_tilt_deg=10.0,
-                           smoothing_alpha=0.5)
+    outer = MPPIController(
+        dt=dt_ctrl,
+        horizon=args.horizon,
+        n_samples=args.n_samples,
+        temperature=args.temperature,
+        mass=env.MASS,
+        gravity=9.81,
+        Q=Q,
+        R=R,
+        Q_terminal=Qf,
+        max_tilt_deg=10.0,
+        smoothing_alpha=args.smoothing_alpha,
+        seed=args.seed,
+        risk_model=risk_model,
+        risk_weight=rw,
+    )
     inner = CascadeController(dt_inner=dt_sim)
 
     # ---- Initialise --------------------------------------------------------
