@@ -6,6 +6,10 @@ Quadrotor (Crazyflie 2) trajectory tracking in MuJoCo physics simulation, implem
 |:---:|:---:|
 | ![MPC Circle](media/mpc_circle.gif) | ![MPC Figure-8](media/mpc_eight.gif) |
 
+| MPPI — Circle | MPPI — Figure-8 |
+|:---:|:---:|
+| ![MPPI Circle](media/mppi_circle.gif) | ![MPPI Figure-8](media/mppi_eight.gif) |
+
 <!-- ---
 
 ## ✨ Features
