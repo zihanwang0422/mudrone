@@ -102,6 +102,9 @@ python run_mppi.py --n-samples 512 --temperature 0.02 --horizon 40
 
 # Save result
 python run_mppi.py --save results/mppi_circle.png
+
+# Figure-8 + walls + analytic risk + GIF export
+python run_mppi.py --trajectory lemniscate --scene with_walls --wall-half-gap 1.0 --wall-half-thickness 0.08 --risk analytic --risk-weight 0.35 --render --save-gif results/mppi_fig8_narrow.gif
 ```
 
 ### ⚖️ MPC vs MPPI Comparison
@@ -123,13 +126,22 @@ python run_compare.py --save results/comparison.png
 | `--trajectory` | `circle` | `circle` \| `lemniscate` |
 | `--render` | `False` | Enable MuJoCo real-time viewer |
 | `--save` | `None` | Save plot to file path |
+| `--save-gif` | `None` | Save simulation animation as GIF |
+| `--gif-fps` | `30` | GIF frame rate |
+| `--gif-width` | `640` | GIF width |
+| `--gif-height` | `360` | GIF height |
+| `--gif-stride` | `4` | Capture every N sim steps (smaller = smoother, larger file) |
 | `--horizon` | `25/30` | MPC/MPPI prediction horizon steps |
 | `--n-samples` | `512` | MPPI sample count K (REPORT §3.5) |
 | `--temperature` | `0.05` | MPPI temperature λ (lower = greedier) |
 | `--smoothing-alpha` | `0.05` | MPPI nominal-control smoothing (REPORT §3.5) |
 | `--seed` | `42` | MPPI RNG seed |
 | `--risk` | `none` | `none` \| `analytic` \| `learned` (§4.2.3) |
+| `--risk-weight` | `0.35` | Multiplier on MPPI risk cost |
+| `--risk-weights` | `None` | Path to learned risk model `.npz` |
 | `--scene` | `default` | `default` \| `with_walls` (match analytic walls) |
+| `--wall-half-gap` | `2.65` | For `with_walls`: wall center at `x=±value` (smaller = narrower corridor) |
+| `--wall-half-thickness` | `0.08` | For `with_walls`: half wall thickness in x (m) |
 
 ---
 

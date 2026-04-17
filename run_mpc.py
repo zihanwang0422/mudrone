@@ -9,12 +9,15 @@ Architecture (cascade control):
 Usage:
     python run_mpc.py [--radius 1.0] [--height 1.0] [--omega 0.5]
                       [--duration 20] [--render] [--save PATH]
+                      [--save-gif out.gif]
                       [--trajectory circle|lemniscate]
 """
 
 import argparse
+import os
 import time
 import numpy as np
+import mujoco
 
 from drone_mpc.drone_env import DroneEnv, quat_to_euler
 from drone_mpc.mpc_controller import MPCController
@@ -31,6 +34,11 @@ def main():
     parser.add_argument("--duration",   type=float, default=20.0,  help="Simulation duration (s)")
     parser.add_argument("--render",     action="store_true",       help="Enable MuJoCo viewer")
     parser.add_argument("--save",       type=str,   default=None,  help="Save plot to file")
+    parser.add_argument("--save-gif",   type=str,   default=None,  help="Save simulation animation to GIF")
+    parser.add_argument("--gif-fps",    type=int,   default=30,    help="GIF frame rate")
+    parser.add_argument("--gif-width",  type=int,   default=640,   help="GIF frame width")
+    parser.add_argument("--gif-height", type=int,   default=360,   help="GIF frame height")
+    parser.add_argument("--gif-stride", type=int,   default=4,     help="Capture every N sim steps for GIF")
     parser.add_argument("--trajectory", type=str,   default="circle",
                         choices=["circle", "lemniscate"])
     parser.add_argument("--horizon",    type=int,   default=25,    help="MPC horizon steps")
@@ -84,6 +92,25 @@ def main():
         env.launch_viewer(track_drone=True, cam_azimuth=45.0,
                           cam_elevation=-30.0, cam_distance=5.0)
 
+    gif_renderer = None
+    gif_writer = None
+    if args.save_gif:
+        try:
+            import imageio.v2 as imageio
+        except ImportError as exc:
+            raise RuntimeError(
+                "GIF export requires imageio. Install with: pip install imageio pillow"
+            ) from exc
+
+        gif_path = os.path.abspath(args.save_gif)
+        gif_dir = os.path.dirname(gif_path)
+        if gif_dir:
+            os.makedirs(gif_dir, exist_ok=True)
+
+        gif_renderer = mujoco.Renderer(env.model, height=args.gif_height, width=args.gif_width)
+        gif_writer = imageio.get_writer(gif_path, mode="I", fps=args.gif_fps, loop=0)
+        print(f"  GIF output : {gif_path}  ({args.gif_width}x{args.gif_height}, fps={args.gif_fps}, stride={args.gif_stride})")
+
     # ---- Logging buffers ---------------------------------------------------
     log_times, log_pos, log_ref, log_ctrl, log_compute = [], [], [], [], []
 
@@ -134,6 +161,10 @@ def main():
         # ---------- step MuJoCo ---------------------------------------------
         state = env.step(ctrl)
 
+        if gif_renderer is not None and gif_writer is not None and (step % max(1, args.gif_stride) == 0):
+            gif_renderer.update_scene(env.data, camera="track")
+            gif_writer.append_data(gif_renderer.render())
+
         # Wall-clock pacing when rendering
         if args.render and env._viewer is not None:
             elapsed_wall = time.time() - wall_start
@@ -156,6 +187,13 @@ def main():
     print(f"  Max error   : {np.max(errors):.4f} m")
     print(f"  Avg MPC time: {np.mean(comp_times)*1e3:.1f} ms")
     print("=" * 60)
+
+    if gif_writer is not None:
+        gif_writer.close()
+    if gif_renderer is not None:
+        gif_renderer.close()
+    if args.save_gif:
+        print(f"  GIF saved   : {os.path.abspath(args.save_gif)}")
 
     plot_tracking_results(times, actual_pos, ref_pos, controls,
                           title_prefix="MPC", save_path=args.save)

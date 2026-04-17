@@ -504,6 +504,12 @@ python run_mpc.py --save results/mpc_circle.png
 
 ```bash
 python run_mppi.py --trajectory lemniscate --render
+
+# ∞字形 + 窄墙场景 + 解析风险代价 + 导出 GIF
+python run_mppi.py --trajectory lemniscate --scene with_walls --wall-half-gap 1.8 --wall-half-thickness 0.08 --risk analytic --risk-weight 0.35 --render --save-gif results/mppi_fig8_narrow.gif
+
+# 进一步调窄通道（示例）
+python run_mppi.py --trajectory lemniscate --scene with_walls --wall-half-gap 1.5 --wall-half-thickness 0.08 --risk analytic --render
 ```
 
 ### 对比两种控制器
